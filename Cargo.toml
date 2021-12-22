@@ -1,6 +1,8 @@
 [package]
 name = "lapce-plugin"
 version = "0.1.0"
+license = "Apache-2.0"
+description = "rust libary for Lapce plugin"
 edition = "2021"
 
 [dependencies]
