@@ -1,8 +1,13 @@
+use event::PluginEventKind;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 
+pub mod event;
+
 pub trait LapcePlugin {
     fn initialize(&mut self, configuration: serde_json::Value) {}
+
+    fn update(&mut self, event: serde_json::Value) {}
 }
 
 #[macro_export]
@@ -20,6 +25,15 @@ macro_rules! register_plugin {
                 state
                     .borrow_mut()
                     .initialize($crate::object_from_stdin().unwrap());
+            });
+        }
+
+        #[no_mangle]
+        fn update() {
+            STATE.with(|state| {
+                state
+                    .borrow_mut()
+                    .update($crate::object_from_stdin().unwrap());
             });
         }
     };
@@ -41,6 +55,16 @@ pub fn send_notification(method: &str, params: &Value) {
         "params": params,
     }));
     unsafe { host_handle_notification() };
+}
+
+/// Subscribe to specific events to receive them in the [`LapcePlugin::update`] method
+pub fn subscribe(events: &[PluginEventKind]) {
+    send_notification(
+        "subscribe",
+        &json!({
+            "events": events,
+        }),
+    )
 }
 
 pub fn start_lsp(exec_path: &str, language_id: &str, options: Option<Value>) {
