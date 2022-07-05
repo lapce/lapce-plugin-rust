@@ -43,13 +43,14 @@ pub fn send_notification(method: &str, params: &Value) {
     unsafe { host_handle_notification() };
 }
 
-pub fn start_lsp(exec_path: &str, language_id: &str, options: Option<Value>) {
+pub fn start_lsp(exec_path: &str, language_id: &str, options: Option<Value>, system_lsp: bool) {
     send_notification(
         "start_lsp_server",
         &json!({
             "exec_path": exec_path,
             "language_id": language_id,
             "options": options,
+            "system_lsp": system_lsp,
         }),
     );
 }
