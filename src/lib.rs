@@ -1,4 +1,5 @@
 use std::{
+    env,
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -244,4 +245,26 @@ fn send_host_request(id: u64, method: &str, params: &Value) {
 extern "C" {
     fn host_handle_rpc();
     fn host_handle_stderr();
+}
+
+/// Helper struct abstracting environment variables
+/// names from plugin maintainers
+pub struct VoltEnvironment {}
+
+impl VoltEnvironment {
+    pub fn uri() -> Result<String, env::VarError> {
+        env::var("VOLT_URI")
+    }
+
+    pub fn operating_system() -> Result<String, env::VarError> {
+        env::var("VOLT_OS")
+    }
+
+    pub fn architecture() -> Result<String, env::VarError> {
+        env::var("VOLT_ARCH")
+    }
+
+    pub fn libc() -> Result<String, env::VarError> {
+        env::var("VOLT_LIBC")
+    }
 }
