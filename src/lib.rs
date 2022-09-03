@@ -127,11 +127,18 @@ impl PluginServerRpcHandler {
         unsafe { host_handle_stderr() };
     }
 
-    pub fn start_lsp(&self, server_uri: Url, language_id: &str, options: Option<Value>) {
+    pub fn start_lsp(
+        &self,
+        server_uri: Url,
+        server_args: Vec<String>,
+        language_id: &str,
+        options: Option<Value>,
+    ) {
         self.host_notification(
             StartLspServer::METHOD,
             StartLspServerParams {
                 server_uri,
+                server_args,
                 language_id: language_id.to_string(),
                 options,
             },
