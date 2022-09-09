@@ -11,7 +11,10 @@ use crossbeam_channel::{Receiver, Sender};
 use jsonrpc_lite::{Id, JsonRpc};
 use once_cell::sync::Lazy;
 pub use psp_types;
-use psp_types::{lsp_types::Url, Notification, Request, StartLspServer, StartLspServerParams};
+use psp_types::{
+    lsp_types::{DocumentFilter, DocumentSelector, Url},
+    Notification, Request, StartLspServer, StartLspServerParams,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use wasi_experimental_http::Response;
@@ -131,7 +134,7 @@ impl PluginServerRpcHandler {
         &self,
         server_uri: Url,
         server_args: Vec<String>,
-        language_id: &str,
+        document_selector: DocumentSelector,
         options: Option<Value>,
     ) {
         self.host_notification(
@@ -139,7 +142,7 @@ impl PluginServerRpcHandler {
             StartLspServerParams {
                 server_uri,
                 server_args,
-                language_id: language_id.to_string(),
+                document_selector,
                 options,
             },
         );
