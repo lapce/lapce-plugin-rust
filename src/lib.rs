@@ -12,7 +12,10 @@ use jsonrpc_lite::{Id, JsonRpc};
 use once_cell::sync::Lazy;
 pub use psp_types;
 use psp_types::{
-    lsp_types::{DocumentFilter, DocumentSelector, Url},
+    lsp_types::{
+        notification::{LogMessage, ShowMessage},
+        DocumentFilter, DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
+    },
     Notification, Request, StartLspServer, StartLspServerParams,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -128,6 +131,17 @@ impl PluginServerRpcHandler {
     pub fn stderr(&self, msg: &str) {
         eprintln!("{}", msg);
         unsafe { host_handle_stderr() };
+    }
+
+    pub fn window_log_message(&self, kind: MessageType, message: String) {
+        self.host_notification(LogMessage::METHOD, LogMessageParams { typ: kind, message });
+    }
+
+    pub fn window_show_message(&self, kind: MessageType, message: String) {
+        self.host_notification(
+            ShowMessage::METHOD,
+            ShowMessageParams { typ: kind, message },
+        );
     }
 
     pub fn start_lsp(
