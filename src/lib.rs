@@ -7,18 +7,19 @@ use std::{
 };
 
 use anyhow::Result;
-use crossbeam_channel::{Receiver, Sender};
 use jsonrpc_lite::{Id, JsonRpc};
 use once_cell::sync::Lazy;
 pub use psp_types;
 use psp_types::{
     lsp_types::{
         notification::{LogMessage, ShowMessage},
-        DocumentFilter, DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
+        DocumentFilter, DocumentSelector, ExecuteCommandParams, LogMessageParams, MessageType,
+        ShowMessageParams, Url,
     },
-    Notification, Request, StartLspServer, StartLspServerParams,
+    ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, Notification, Request,
+    StartLspServer, StartLspServerParams,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use wasi_experimental_http::Response;
 
@@ -79,8 +80,6 @@ pub enum PluginServerRpc {
 }
 
 pub struct PluginServerRpcHandler {
-    rx: Receiver<PluginServerRpc>,
-    tx: Sender<PluginServerRpc>,
     id: Arc<AtomicU64>,
 }
 
@@ -128,41 +127,10 @@ macro_rules! register_plugin {
 
 impl PluginServerRpcHandler {
     fn new() -> Self {
-        let (tx, rx) = crossbeam_channel::unbounded();
         Self {
-            rx,
-            tx,
             id: Arc::new(AtomicU64::new(0)),
         }
     }
-
-    pub fn mainloop<H>(&self, handler: &mut H)
-    where
-        H: LapcePlugin,
-    {
-        use PluginServerRpc::*;
-        for rpc in &self.rx {
-            // match rpc {}
-        }
-    }
-
-    // fn handle_server_request(&self) {
-    //     if let Ok(value) = object_from_stdin::<Value>() {
-    //         let _ = self.tx.send(PluginServerRpc::Request(value));
-    //     }
-    // }
-
-    // fn handle_server_notification(&self) {
-    //     if let Ok(value) = object_from_stdin::<Value>() {
-    //         let _ = self.tx.send(PluginServerRpc::Notification(value));
-    //     }
-    // }
-
-    // fn handle_rpc(&self) {
-    //     if let Ok(value) = object_from_stdin::<Value>() {
-    //         let _ = self.tx.send(PluginServerRpc::Notification(value));
-    //     }
-    // }
 
     pub fn stderr(&self, msg: &str) {
         eprintln!("{}", msg);
@@ -198,10 +166,42 @@ impl PluginServerRpcHandler {
         );
     }
 
-    fn host_request<P: Serialize>(&self, method: &str, params: P) {
+    pub fn execute_process(
+        &self,
+        program: String,
+        args: Vec<String>,
+    ) -> Result<ExecuteProcessResult, jsonrpc_lite::Error> {
+        self.host_request(
+            ExecuteProcess::METHOD,
+            ExecuteProcessParams { program, args },
+        )
+    }
+
+    fn host_request<P: Serialize, D: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: P,
+    ) -> Result<D, jsonrpc_lite::Error> {
         let id = self.id.fetch_add(1, Ordering::Relaxed);
         let params = serde_json::to_value(params).unwrap();
         send_host_request(id, method, &params);
+        let mut msg = String::new();
+        std::io::stdin().read_line(&mut msg).unwrap();
+
+        match JsonRpc::parse(&msg) {
+            Ok(rpc) => {
+                if let Some(value) = rpc.get_result() {
+                    let result: Result<D, serde_json::Error> =
+                        serde_json::from_value(value.clone());
+                    result.map_err(|_| jsonrpc_lite::Error::invalid_request())
+                } else if let Some(err) = rpc.get_error() {
+                    Err(err.clone())
+                } else {
+                    Err(jsonrpc_lite::Error::invalid_request())
+                }
+            }
+            _ => Err(jsonrpc_lite::Error::invalid_request()),
+        }
     }
 
     fn host_notification<P: Serialize>(&self, method: &str, params: P) {
@@ -209,18 +209,6 @@ impl PluginServerRpcHandler {
         send_host_notification(method, &params);
     }
 }
-
-// pub fn handle_server_request() {
-//     PLUGIN_RPC.handle_server_request();
-// }
-
-// pub fn handle_server_notification() {
-//     PLUGIN_RPC.handle_server_notification();
-// }
-
-// pub fn handle_rpc() {
-//     PLUGIN_RPC.handle_rpc();
-// }
 
 fn number_from_id(id: &Id) -> u64 {
     match *id {
