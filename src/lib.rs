@@ -13,13 +13,12 @@ pub use psp_types;
 use psp_types::{
     lsp_types::{
         notification::{LogMessage, ShowMessage},
-        DocumentFilter, DocumentSelector, ExecuteCommandParams, LogMessageParams, MessageType,
-        ShowMessageParams, Url,
+        DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
     },
     ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, Notification, Request,
     StartLspServer, StartLspServerParams,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use wasi_experimental_http::Response;
 
@@ -208,6 +207,11 @@ impl PluginServerRpcHandler {
         let params = serde_json::to_value(params).unwrap();
         send_host_notification(method, &params);
     }
+
+    pub fn host_success<P: Serialize>(&self, id: u64, params: P) {
+        let params = serde_json::to_value(params).unwrap();
+        send_host_success(id, &params);
+    }
 }
 
 fn number_from_id(id: &Id) -> u64 {
@@ -236,14 +240,8 @@ pub fn parse_stdin() -> Result<PluginServerRpc, serde_json::Error> {
             method: value.get_method().unwrap().to_string(),
             params: serde_json::to_value(value.get_params().unwrap()).unwrap(),
         },
-        Ok(value @ JsonRpc::Success(_)) => {
-            todo!()
-        }
-        Ok(value @ JsonRpc::Error(_)) => {
-            todo!()
-        }
-        Err(err) => {
-            todo!()
+        o => {
+            todo!("{:#?}", o)
         }
     };
     Ok(rpc)
@@ -274,6 +272,15 @@ fn send_host_request(id: u64, method: &str, params: &Value) {
         "id": id,
         "method": method,
         "params": params,
+    }));
+    unsafe { host_handle_rpc() };
+}
+
+fn send_host_success(id: u64, result: &Value) {
+    object_to_stdout(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": result,
     }));
     unsafe { host_handle_rpc() };
 }
