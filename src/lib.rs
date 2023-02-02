@@ -151,7 +151,7 @@ impl PluginServerRpcHandler {
     }
 
     pub fn stderr(&self, msg: &str) {
-        eprintln!("{}", msg);
+        eprintln!("{msg}");
         unsafe { host_handle_stderr() };
     }
 
@@ -160,7 +160,7 @@ impl PluginServerRpcHandler {
         kind: MessageType,
         message: String,
     ) -> Result<(), PluginError> {
-        Ok(self.host_notification(LogMessage::METHOD, LogMessageParams { typ: kind, message })?)
+        self.host_notification(LogMessage::METHOD, LogMessageParams { typ: kind, message })
     }
 
     pub fn window_show_message(
@@ -168,10 +168,10 @@ impl PluginServerRpcHandler {
         kind: MessageType,
         message: String,
     ) -> Result<(), PluginError> {
-        Ok(self.host_notification(
+        self.host_notification(
             ShowMessage::METHOD,
             ShowMessageParams { typ: kind, message },
-        )?)
+        )
     }
 
     pub fn start_lsp(
@@ -181,7 +181,7 @@ impl PluginServerRpcHandler {
         document_selector: DocumentSelector,
         options: Option<Value>,
     ) -> Result<(), PluginError> {
-        Ok(self.host_notification(
+        self.host_notification(
             StartLspServer::METHOD,
             StartLspServerParams {
                 server_uri,
@@ -189,7 +189,7 @@ impl PluginServerRpcHandler {
                 document_selector,
                 options,
             },
-        )?)
+        )
     }
 
     pub fn execute_process(
