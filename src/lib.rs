@@ -1,12 +1,12 @@
 use std::{
     env,
+    num::ParseIntError,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
 };
 
-use anyhow::Result;
 use jsonrpc_lite::{Id, JsonRpc};
 use once_cell::sync::Lazy;
 pub use psp_types;
@@ -20,9 +20,28 @@ use psp_types::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use thiserror::Error;
 use wasi_experimental_http::Response;
 
 pub static PLUGIN_RPC: Lazy<PluginServerRpcHandler> = Lazy::new(PluginServerRpcHandler::new);
+
+#[derive(Error, Debug)]
+pub enum PluginError {
+    #[error("serde related errors")]
+    Serde(#[from] serde_json::Error),
+    #[error("HTTP related errors")]
+    Http(#[from] http::Error),
+    #[error("JSON-RPC related errors")]
+    JsonRpc(#[from] jsonrpc_lite::Error),
+    #[error("I/O related errors")]
+    Io(#[from] std::io::Error),
+    #[error("Anyhow errors")]
+    Anyhow(#[from] anyhow::Error),
+    #[error("Unable to parse string as number")]
+    ParseInt(#[from] ParseIntError),
+    #[error("Other errors")]
+    Other,
+}
 
 /// Helper struct abstracting environment variables
 /// names used in lapce to provide revelant host
@@ -85,7 +104,7 @@ pub struct PluginServerRpcHandler {
 pub struct Http {}
 
 impl Http {
-    pub fn get(url: &str) -> Result<Response> {
+    pub fn get(url: &str) -> Result<Response, PluginError> {
         let req = http::request::Builder::new()
             .method(http::Method::GET)
             .uri(url)
@@ -136,15 +155,23 @@ impl PluginServerRpcHandler {
         unsafe { host_handle_stderr() };
     }
 
-    pub fn window_log_message(&self, kind: MessageType, message: String) {
-        self.host_notification(LogMessage::METHOD, LogMessageParams { typ: kind, message });
+    pub fn window_log_message(
+        &self,
+        kind: MessageType,
+        message: String,
+    ) -> Result<(), PluginError> {
+        Ok(self.host_notification(LogMessage::METHOD, LogMessageParams { typ: kind, message })?)
     }
 
-    pub fn window_show_message(&self, kind: MessageType, message: String) {
-        self.host_notification(
+    pub fn window_show_message(
+        &self,
+        kind: MessageType,
+        message: String,
+    ) -> Result<(), PluginError> {
+        Ok(self.host_notification(
             ShowMessage::METHOD,
             ShowMessageParams { typ: kind, message },
-        );
+        )?)
     }
 
     pub fn start_lsp(
@@ -153,8 +180,8 @@ impl PluginServerRpcHandler {
         server_args: Vec<String>,
         document_selector: DocumentSelector,
         options: Option<Value>,
-    ) {
-        self.host_notification(
+    ) -> Result<(), PluginError> {
+        Ok(self.host_notification(
             StartLspServer::METHOD,
             StartLspServerParams {
                 server_uri,
@@ -162,14 +189,14 @@ impl PluginServerRpcHandler {
                 document_selector,
                 options,
             },
-        );
+        )?)
     }
 
     pub fn execute_process(
         &self,
         program: String,
         args: Vec<String>,
-    ) -> Result<ExecuteProcessResult, jsonrpc_lite::Error> {
+    ) -> Result<ExecuteProcessResult, PluginError> {
         self.host_request(
             ExecuteProcess::METHOD,
             ExecuteProcessParams { program, args },
@@ -180,65 +207,70 @@ impl PluginServerRpcHandler {
         &self,
         method: &str,
         params: P,
-    ) -> Result<D, jsonrpc_lite::Error> {
+    ) -> Result<D, PluginError> {
         let id = self.id.fetch_add(1, Ordering::Relaxed);
-        let params = serde_json::to_value(params).unwrap();
-        send_host_request(id, method, &params);
+        let params = serde_json::to_value(params)?;
+        send_host_request(id, method, &params)?;
         let mut msg = String::new();
-        std::io::stdin().read_line(&mut msg).unwrap();
+        std::io::stdin().read_line(&mut msg)?;
 
         match JsonRpc::parse(&msg) {
             Ok(rpc) => {
                 if let Some(value) = rpc.get_result() {
-                    let result: Result<D, serde_json::Error> =
-                        serde_json::from_value(value.clone());
-                    result.map_err(|_| jsonrpc_lite::Error::invalid_request())
+                    let result = serde_json::from_value::<D>(value.clone())?;
+                    Ok(result)
                 } else if let Some(err) = rpc.get_error() {
-                    Err(err.clone())
+                    Err(PluginError::JsonRpc(err.clone()))
                 } else {
-                    Err(jsonrpc_lite::Error::invalid_request())
+                    Err(PluginError::JsonRpc(jsonrpc_lite::Error::invalid_request()))
                 }
             }
-            _ => Err(jsonrpc_lite::Error::invalid_request()),
+            _ => Err(PluginError::JsonRpc(jsonrpc_lite::Error::invalid_request())),
         }
     }
 
-    fn host_notification<P: Serialize>(&self, method: &str, params: P) {
-        let params = serde_json::to_value(params).unwrap();
-        send_host_notification(method, &params);
+    fn host_notification<P: Serialize>(&self, method: &str, params: P) -> Result<(), PluginError> {
+        let params = serde_json::to_value(params)?;
+        send_host_notification(method, &params)?;
+        Ok(())
     }
 
-    pub fn host_success<P: Serialize>(&self, id: u64, params: P) {
-        let params = serde_json::to_value(params).unwrap();
-        send_host_success(id, &params);
+    pub fn host_success<P: Serialize>(&self, id: u64, params: P) -> Result<(), PluginError> {
+        let params = serde_json::to_value(params)?;
+        send_host_success(id, &params)?;
+        Ok(())
+    }
+
+    pub fn host_error<P: AsRef<str>>(&self, id: u64, params: P) -> Result<(), PluginError> {
+        send_host_error(id, params.as_ref())?;
+        Ok(())
     }
 }
 
-fn number_from_id(id: &Id) -> u64 {
+fn number_from_id(id: &Id) -> Result<u64, PluginError> {
     match *id {
-        Id::Num(n) => n as u64,
-        Id::Str(ref s) => s
-            .parse::<u64>()
-            .expect("failed to convert string id to u64"),
-        _ => panic!("unexpected value for id: None"),
+        Id::Num(n) => Ok(n as u64),
+        Id::Str(ref s) => Ok(s.parse::<u64>()?),
+        _ => Err(PluginError::Other),
     }
 }
 
-pub fn parse_stdin() -> Result<PluginServerRpc, serde_json::Error> {
+pub fn parse_stdin() -> Result<PluginServerRpc, PluginError> {
     let mut msg = String::new();
-    std::io::stdin().read_line(&mut msg).unwrap();
+    std::io::stdin().read_line(&mut msg)?;
     let rpc = match JsonRpc::parse(&msg) {
         Ok(value @ JsonRpc::Request(_)) => {
-            let id = number_from_id(&value.get_id().unwrap());
+            let m_id = value.get_id().ok_or(PluginError::Other)?;
+            let id = number_from_id(&m_id)?;
             PluginServerRpc::Request {
                 id,
-                method: value.get_method().unwrap().to_string(),
-                params: serde_json::to_value(value.get_params().unwrap()).unwrap(),
+                method: value.get_method().ok_or(PluginError::Other)?.to_string(),
+                params: serde_json::to_value(value.get_params().ok_or(PluginError::Other)?)?,
             }
         }
         Ok(value @ JsonRpc::Notification(_)) => PluginServerRpc::Notification {
-            method: value.get_method().unwrap().to_string(),
-            params: serde_json::to_value(value.get_params().unwrap()).unwrap(),
+            method: value.get_method().ok_or(PluginError::Other)?.to_string(),
+            params: serde_json::to_value(value.get_params().ok_or(PluginError::Other)?)?,
         },
         o => {
             todo!("{:#?}", o)
@@ -247,42 +279,56 @@ pub fn parse_stdin() -> Result<PluginServerRpc, serde_json::Error> {
     Ok(rpc)
 }
 
-pub fn object_from_stdin<T: DeserializeOwned>() -> Result<T, serde_json::Error> {
+pub fn object_from_stdin<T: DeserializeOwned>() -> Result<T, PluginError> {
     let mut json = String::new();
-    std::io::stdin().read_line(&mut json).unwrap();
-    serde_json::from_str(&json)
+    std::io::stdin().read_line(&mut json)?;
+    let result = serde_json::from_str(&json)?;
+    Ok(result)
 }
 
-pub fn object_to_stdout(object: &impl Serialize) {
-    println!("{}", serde_json::to_string(object).unwrap());
+pub fn object_to_stdout(object: &impl Serialize) -> Result<(), PluginError> {
+    println!("{}", serde_json::to_string(object)?);
+    Ok(())
 }
 
-fn send_host_notification(method: &str, params: &Value) {
+fn send_host_notification(method: &str, params: &Value) -> Result<(), PluginError> {
     object_to_stdout(&serde_json::json!({
         "jsonrpc": "2.0",
         "method": method,
         "params": params,
-    }));
+    }))?;
     unsafe { host_handle_rpc() };
+    Ok(())
 }
 
-fn send_host_request(id: u64, method: &str, params: &Value) {
+fn send_host_request(id: u64, method: &str, params: &Value) -> Result<(), PluginError> {
     object_to_stdout(&serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "method": method,
         "params": params,
-    }));
+    }))?;
     unsafe { host_handle_rpc() };
+    Ok(())
 }
 
-fn send_host_success(id: u64, result: &Value) {
-    object_to_stdout(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": result,
-    }));
+fn send_host_success(id: u64, result: &Value) -> Result<(), PluginError> {
+    object_to_stdout(&jsonrpc_lite::JsonRpc::success(id as i64, result))?;
     unsafe { host_handle_rpc() };
+    Ok(())
+}
+
+fn send_host_error(id: u64, message: &str) -> Result<(), PluginError> {
+    object_to_stdout(&jsonrpc_lite::JsonRpc::error(
+        id as i64,
+        jsonrpc_lite::Error {
+            code: jsonrpc_lite::ErrorCode::InvalidParams.code(),
+            message: message.to_string(),
+            data: None,
+        },
+    ))?;
+    unsafe { host_handle_rpc() };
+    Ok(())
 }
 
 #[link(wasm_import_module = "lapce")]
