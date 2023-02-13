@@ -27,20 +27,20 @@ pub static PLUGIN_RPC: Lazy<PluginServerRpcHandler> = Lazy::new(PluginServerRpcH
 
 #[derive(Error, Debug)]
 pub enum PluginError {
-    #[error("serde related errors")]
+    #[error("serde related errors:{0}")]
     Serde(#[from] serde_json::Error),
-    #[error("HTTP related errors")]
+    #[error("HTTP related errors:{0}")]
     Http(#[from] http::Error),
-    #[error("JSON-RPC related errors")]
+    #[error("JSON-RPC related errors:{0}")]
     JsonRpc(#[from] jsonrpc_lite::Error),
-    #[error("I/O related errors")]
+    #[error("I/O related errors:{0}")]
     Io(#[from] std::io::Error),
-    #[error("Anyhow errors")]
+    #[error("Anyhow errors:{0}")]
     Anyhow(#[from] anyhow::Error),
-    #[error("Unable to parse string as number")]
+    #[error("Unable to parse string as number:{0}")]
     ParseInt(#[from] ParseIntError),
-    #[error("Other errors")]
-    Other,
+    #[error("Other errors:{0}")]
+    Other(String),
 }
 
 /// Helper struct abstracting environment variables
@@ -251,7 +251,7 @@ fn number_from_id(id: &Id) -> Result<u64, PluginError> {
     match *id {
         Id::Num(n) => Ok(n as u64),
         Id::Str(ref s) => Ok(s.parse::<u64>()?),
-        _ => Err(PluginError::Other),
+        Id::None(_) => Err(PluginError::Other("id is not provided".to_string())),
     }
 }
 
@@ -260,17 +260,33 @@ pub fn parse_stdin() -> Result<PluginServerRpc, PluginError> {
     std::io::stdin().read_line(&mut msg)?;
     let rpc = match JsonRpc::parse(&msg) {
         Ok(value @ JsonRpc::Request(_)) => {
-            let m_id = value.get_id().ok_or(PluginError::Other)?;
+            let m_id = value
+                .get_id()
+                .ok_or(PluginError::Other("request is missing id".to_string()))?;
             let id = number_from_id(&m_id)?;
             PluginServerRpc::Request {
                 id,
-                method: value.get_method().ok_or(PluginError::Other)?.to_string(),
-                params: serde_json::to_value(value.get_params().ok_or(PluginError::Other)?)?,
+                method: value
+                    .get_method()
+                    .ok_or(PluginError::Other("request is missing method".to_string()))?
+                    .to_string(),
+                params: serde_json::to_value(
+                    value
+                        .get_params()
+                        .ok_or(PluginError::Other("request is missing params".to_string()))?,
+                )?,
             }
         }
         Ok(value @ JsonRpc::Notification(_)) => PluginServerRpc::Notification {
-            method: value.get_method().ok_or(PluginError::Other)?.to_string(),
-            params: serde_json::to_value(value.get_params().ok_or(PluginError::Other)?)?,
+            method: value
+                .get_method()
+                .ok_or(PluginError::Other(
+                    "notification is missing method".to_string(),
+                ))?
+                .to_string(),
+            params: serde_json::to_value(value.get_params().ok_or(PluginError::Other(
+                "notification is missing params".to_string(),
+            ))?)?,
         },
         o => {
             todo!("{:#?}", o)
