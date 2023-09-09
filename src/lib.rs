@@ -16,7 +16,7 @@ use psp_types::{
         DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
     },
     ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, Notification, Request,
-    StartLspServer, StartLspServerParams,
+    StartLspServer, StartLspServerParams, StartLspServerResult,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -180,8 +180,8 @@ impl PluginServerRpcHandler {
         server_args: Vec<String>,
         document_selector: DocumentSelector,
         options: Option<Value>,
-    ) -> Result<(), PluginError> {
-        self.host_notification(
+    ) -> Result<StartLspServerResult, PluginError> {
+        self.host_request(
             StartLspServer::METHOD,
             StartLspServerParams {
                 server_uri,
