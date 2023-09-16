@@ -1,3 +1,5 @@
+pub mod lsp;
+
 use std::{
     env,
     num::ParseIntError,
@@ -8,6 +10,7 @@ use std::{
 };
 
 use jsonrpc_lite::{Id, JsonRpc};
+use lsp::LspRef;
 use once_cell::sync::Lazy;
 pub use psp_types;
 use psp_types::{
@@ -15,8 +18,10 @@ use psp_types::{
         notification::{LogMessage, ShowMessage},
         DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
     },
-    ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, Notification, Request,
-    StartLspServer, StartLspServerParams, StartLspServerResult,
+    ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, LspId, Notification, Request,
+    SendLspNotification, SendLspNotificationParams, SendLspNotificationResult, SendLspRequest,
+    SendLspRequestParams, SendLspRequestResult, StartLspServer, StartLspServerParams,
+    StartLspServerResult,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -180,8 +185,8 @@ impl PluginServerRpcHandler {
         server_args: Vec<String>,
         document_selector: DocumentSelector,
         options: Option<Value>,
-    ) -> Result<StartLspServerResult, PluginError> {
-        self.host_request(
+    ) -> Result<LspRef, PluginError> {
+        let res: StartLspServerResult = self.host_request(
             StartLspServer::METHOD,
             StartLspServerParams {
                 server_uri,
@@ -189,7 +194,47 @@ impl PluginServerRpcHandler {
                 document_selector,
                 options,
             },
+        )?;
+
+        let id = res.id;
+        Ok(LspRef::new(id))
+    }
+
+    /// Send a notification to an LSP.  
+    pub fn lsp_send_notification<P: Serialize>(
+        &self,
+        lsp_id: LspId,
+        method: &str,
+        params: P,
+    ) -> Result<(), PluginError> {
+        self.host_notification(
+            SendLspNotification::METHOD,
+            SendLspNotificationParams {
+                id: lsp_id,
+                method: method.to_string(),
+                params: serde_json::to_value(params)?,
+            },
         )
+    }
+
+    /// Send a request to an LSP.  
+    /// This *waits* for the client to respond with a result.
+    pub fn lsp_send_request_blocking<P: Serialize, D: DeserializeOwned>(
+        &self,
+        lsp_id: LspId,
+        method: &str,
+        params: P,
+    ) -> Result<D, PluginError> {
+        let res: SendLspRequestResult = self.host_request(
+            SendLspRequest::METHOD,
+            SendLspRequestParams {
+                id: lsp_id,
+                method: method.to_string(),
+                params: serde_json::to_value(params)?,
+            },
+        )?;
+
+        Ok(serde_json::from_value(res.result)?)
     }
 
     pub fn execute_process(
