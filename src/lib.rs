@@ -10,6 +10,7 @@ use std::{
 };
 
 use jsonrpc_lite::{Id, JsonRpc};
+use lapce_wasi_experimental_http::Response;
 use lsp::LspRef;
 use once_cell::sync::Lazy;
 pub use psp_types;
@@ -18,15 +19,14 @@ use psp_types::{
         notification::{LogMessage, ShowMessage},
         DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
     },
-    ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, LspId, Notification, Request,
-    SendLspNotification, SendLspNotificationParams, SendLspNotificationResult, SendLspRequest,
-    SendLspRequestParams, SendLspRequestResult, StartLspServer, StartLspServerParams,
-    StartLspServerResult,
+    ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, LspId, Notification,
+    RegisterDebuggerType, RegisterDebuggerTypeParams, Request, SendLspNotification,
+    SendLspNotificationParams, SendLspRequest, SendLspRequestParams, SendLspRequestResult,
+    StartLspServer, StartLspServerParams, StartLspServerResult,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use thiserror::Error;
-use wasi_experimental_http::Response;
 
 pub static PLUGIN_RPC: Lazy<PluginServerRpcHandler> = Lazy::new(PluginServerRpcHandler::new);
 
@@ -114,7 +114,7 @@ impl Http {
             .method(http::Method::GET)
             .uri(url)
             .body(None)?;
-        let resp = wasi_experimental_http::request(req)?;
+        let resp = lapce_wasi_experimental_http::request(req)?;
         Ok(resp)
     }
 }
@@ -198,6 +198,22 @@ impl PluginServerRpcHandler {
 
         let id = res.id;
         Ok(LspRef::new(id))
+    }
+
+    pub fn register_debugger_type(
+        &self,
+        debugger_type: String,
+        program: String,
+        args: Option<Vec<String>>,
+    ) -> Result<(), PluginError> {
+        self.host_request(
+            RegisterDebuggerType::METHOD,
+            RegisterDebuggerTypeParams {
+                debugger_type,
+                program,
+                args,
+            },
+        )
     }
 
     /// Send a notification to an LSP.  
