@@ -17,7 +17,7 @@ pub use psp_types;
 use psp_types::{
     lsp_types::{
         notification::{LogMessage, ShowMessage},
-        DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Url,
+        DocumentSelector, LogMessageParams, MessageType, ShowMessageParams, Uri,
     },
     ExecuteProcess, ExecuteProcessParams, ExecuteProcessResult, LspId, Notification,
     RegisterDebuggerType, RegisterDebuggerTypeParams, Request, SendLspNotification,
@@ -181,7 +181,7 @@ impl PluginServerRpcHandler {
 
     pub fn start_lsp(
         &self,
-        server_uri: Url,
+        server_uri: Uri,
         server_args: Vec<String>,
         document_selector: DocumentSelector,
         options: Option<Value>,
